@@ -36,7 +36,6 @@ public:
     std::string _path;      // Http请求路径
     std::string _version;   // Http协议版本
     std::string _body;      // Http请求正文
-    std::smatch _matches;   //资源路径的正则提取数据
     std::unordered_map<std::string, std::string> _headers; // Http请求头
     std::unordered_map<std::string, std::string> _params;  // Http查询字符串
 };

@@ -8,7 +8,6 @@ void HttpRequest::Reset() {
     _path.clear();
     _version = "HTTP/1.1";
     std::smatch match;      // 正则匹配后面想办法优化掉
-    _matches.swap(match);   // 降低了性能
     _body.clear();
     _headers.clear();
     _params.clear();
