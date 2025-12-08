@@ -19,21 +19,13 @@ enum ConnectStatus {
     DISCONNECTING   //关闭连接，正在关闭连接的流程中
 };
 
-struct ResponseContext {
-    bool sending = false;
-    bool header_sent = false;
-    bool expect_close = false;
-
+struct FileContext {
     int fd = -1;
-    size_t offset = 0;
+    off_t offset = 0;
     size_t remain = 0;
     bool active = false;
 
     void Reset() {
-        sending = false;
-        header_sent = false;
-        expect_close = false;
-
         fd = -1;
         offset = 0;
         remain = 0;
@@ -88,13 +80,8 @@ public:
                 const ClosedCallback &clscb,
                 const AnyEventCallback &anyeventcb
             );
-    /* brief: 开始响应 */
-    void StartResponse(bool expect_close);
-    /* brief: 结束响应头响应 */
-    void EndHeaderSend();
-    /* brief: 判断是否还在处理请求 */
-    bool IsSendingResponse() const;
-    void SetResponseStatus(bool expect_close);
+    /* brief: 判断连接是否繁忙（用于判断是否可以安全关闭或接收新请求） */
+    bool IsWriting() const { return _out_buffer.ReadableBytes() > 0 || _filectx.active; }
 private:
     /* brief: 以下 5个 回调函数，都是设置给 Channel 的，用于对应事件就绪后执行 */
     void HandleRead();
@@ -108,7 +95,7 @@ private:
     void EstablishedInLoop();
     void ReleaseInLoop();
     void SendInLoop(Buffer &buf);
-    void SendFileInLoop();
+    void SendFileInLoop(int fd, size_t size);
     void ShutdownInLoop();
     void EnableInactiveReleaseInLoop(int sec);
     void CancleInactiveReleaseInLoop();
@@ -142,7 +129,7 @@ private:
               的 EventLoop线程 内移除自己的信息 */
     ClosedCallback _server_closed_callback;
 
-    ResponseContext _respctx;            // 响应上下文
+    FileContext _filectx;            // 文件上下文
 };
 
 }
