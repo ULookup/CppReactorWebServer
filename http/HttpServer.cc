@@ -8,6 +8,12 @@ HttpServer::HttpServer(uint16_t port, int timeout) : _server(port) {
     _server.EnableInactiveRelease(timeout);
     _server.SetConnectedCallback(std::bind(&HttpServer::OnConnected, this, std::placeholders::_1)); // 将OnConnection的this绑定后，剩下的Connection参数交给服务器去绑定
     _server.SetMessageCallback(std::bind(&HttpServer::OnMessage, this, std::placeholders::_1, std::placeholders::_2));
+
+    //初始化常用方法的根节点
+    _roots["GET"] = std::make_shared<TrieNode>();
+    _roots["POST"] = std::make_shared<TrieNode>();
+    _roots["PUT"] = std::make_shared<TrieNode>();
+    _roots["DELETE"] = std::make_shared<TrieNode>();
 }
 /* brief: 提供给使用者注册基准路径 */
 void HttpServer::SetBaseDir(const std::string &path) {
@@ -88,27 +94,22 @@ void HttpServer::WriteResponse(const std::shared_ptr<src::Connection> &connectio
     header += "\r\n";
     SPDLOG_TRACE("HttpResponse 的 Headers:");
     SPDLOG_TRACE("{}", header);
-    // 3.1 如果是常规响应，直接发送 body
-    if(!response.HasHeader("X-SENDFILE-FD")) {
-        SPDLOG_TRACE("请求属于非静态资源请求, 使用SendFile实现零拷贝");
-        connection->Send(header.c_str(), header.size());
-        if(!response._body.empty()) {
-            SPDLOG_TRACE("HttpResponse 的 Body:");
-            SPDLOG_TRACE("{}", response._body);
-            connection->Send(response._body.c_str(), response._body.size());
-        }
-        return;
-    }
-    // 3.2 是SendFile响应
-    SPDLOG_TRACE("请求属于静态资源请求, 使用SendFile实现零拷贝");
-    int fd = std::stoi(response._headers["X-SENDFILE-FD"]);
-    size_t len = std::stoul(response._headers["X-SENDFILE-SIZE"]);
+
+    // 2.发送Header
     SPDLOG_TRACE("调用Send, 发送响应头");
     connection->Send(header.c_str(), header.size());
-    connection->EndHeaderSend();
-    
-    SPDLOG_TRACE("调用SendFile, 静态资源上下文交给Connection管理");
-    connection->SendFile(fd, len);
+    // 3 发送Body
+    if(response.HasHeader("X-SENDFILE-FD")) {
+        //静态资源，调用 SendFile
+        //因为 Connection 保证先发Buffer后发File，所以顺序是安全的
+        SPDLOG_TRACE("请求静态资源, 用SendFile实现零拷贝");
+        int fd = std::stoi(response.GetHeader("X-SENDFILE-FD"));
+        size_t size = std::stoul(response.GetHeader("X-SENDFILE-SIZE"));
+        connection->SendFile(fd, size);
+    } else if(!response._body.empty()) {
+        SPDLOG_TRACE("请求普通资源, 调用Send发送body");
+        connection->Send(response._body.c_str(), response._body.size());
+    }
 }
 /* brief: 判断是不是静态资源请求 */
 bool HttpServer::IsFileHandler(const http::HttpRequest &request) {
@@ -142,14 +143,18 @@ void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpRespons
     if(request_path.back() == '/') request_path += "index.html";
     SPDLOG_TRACE("request_path: {}", request_path);
     /* bool ret = util::Util::ReadFile(request_path, &response->_body); */
+    //step1: 打开文件
     int fd = open(request_path.c_str(), O_RDONLY);
     if(fd < 0) {
+        SPDLOG_ERROR("打开文件失败");
         response->_status = 404;
         ErrorHandler(request, response);
         return;
     }
+    //step2: 获取文件状态
     struct stat st;
     if(fstat(fd, &st) < 0) {
+        SPDLOG_ERROR("获取文件状态失败");
         close(fd);
         response->_status = 404;
         ErrorHandler(request, response);
@@ -160,16 +165,98 @@ void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpRespons
     response->SetHeader("Content-Length", std::to_string(st.st_size));
     response->SetHeader("Content-Type", util::Util::ExtMime(request_path));
 
-    response->_body.clear();
     response->_headers["X-SENDFILE-FD"] = std::to_string(fd);
     response->_headers["X-SENDFILE-SIZE"] = std::to_string(st.st_size);
     // 判断 MIME 是否以 image/ 开头，如果是，就开启缓存
     /* if(mime.rfind("image/", 0) == 0) response->SetHeader("Cache-Control", "max-age=31536000, public"); */
+    response->_body.clear();
     SPDLOG_DEBUG("退出FileHandler函数");
 }
+/* brief: 添加路由到 Trie */
+void HttpServer::AddRoute(const std::string &method, const std::string &pattern, const Handler &handler) {
+    if(_roots.find(method) == _roots.end()) {
+        _roots[method] = std::make_shared<TrieNode>();
+    }
+    auto node = _roots[method];
+
+    std::vector<std::string> parts = util::Util::SplitPath(pattern);
+    for(const auto &part : parts) {
+        if(!part.empty() && part[0] == ':') {
+            // 处理动态参数，例如 :id
+            if(!node->_param_child) {
+                node->_param_child = std::make_shared<TrieNode>();
+                node->_param_name = part.substr(1); // 存储"id";
+            }
+            // 简单实现: 如果有冲突的参数名，这里会覆盖，业务层应该避免
+            node->_param_name = part.substr(1);
+            node = node->_param_child;
+        } else {
+            // 处理静态路径
+            if(node->_children.find(part) == node->_children.end()) {
+                node->_children[part] = std::make_shared<TrieNode>();
+            }
+            node = node->_children[part];
+        }
+    }
+    node->_is_end = true;
+    node->_handler = handler;
+    SPDLOG_DEBUG("注册路由: [{}] {}", method, pattern);
+}
+/* brief: 在 Trie 中匹配路由 */
+bool HttpServer::MatchRoute(const std::string &method, const std::string &path, Handler &handler, std::unordered_map<std::string, std::string> &params) {
+    if(_roots.find(method) == _roots.end()) return false;
+    auto node = _roots[method];
+
+    std::vector<std::string> parts = util::Util::SplitPath(path);
+
+    for(const auto &part : parts) {
+        // 优先匹配静态路径
+        if(node->_children.count(part)) {
+            node = node->_children[part];
+        }
+        // 匹配动态参数
+        else if(node->_param_child) {
+            //捕获参数
+            params[node->_param_name] = part;
+            node = node->_param_child;
+        }
+        // 匹配失败
+        else {
+            return false;
+        }
+    }
+
+    if(node->_is_end && node->_handler) {
+        handler = node->_handler;
+        return true;
+    }
+    return false;
+}
 /* brief: 对功能性请求进行路由分配的函数(已经确认了请求方法) */
-void HttpServer::Dispatcher(http::HttpRequest &request, http::HttpResponse *response, Handlers &handlers) {
-    //在对应请求方法的路由表中，查找是否含有对应处理函数，有则调用，没有则返回404
+void HttpServer::Dispatcher(http::HttpRequest &request, http::HttpResponse *response) {
+    Handler handler;
+    //临时存储路径参数
+    std::unordered_map<std::string, std::string> path_params;
+
+    SPDLOG_DEBUG("正在匹配路由: [{}] {}", request._method, request._path);
+
+    //使用 Trie 树进行匹配
+    if(MatchRoute(request._method, request._path, handler, path_params)) {
+        SPDLOG_DEBUG("路由匹配成功");
+        //将提取到的路径参数合并到request的_params中
+        //这样业务层可以轻松获取
+        for(auto &kv : path_params) {
+            request.SetParam(kv.first, kv.second);
+        }
+
+        //调用业务函数
+        handler(request, response);
+    } else {
+        SPDLOG_WARN("路由匹配失败: 404");
+        response->_status = 404;
+        ErrorHandler(request, response);
+    }
+    /*//在对应请求方法的路由表中，查找是否含有对应处理函数，有则调用，没有则返回404
     //思想：路由表存储的是键值对 --- 正则表达式 & 处理函数
     //使用正则表达式，对请求的资源路径进行正则匹配，匹配成功就使用对应函数处理
     //（需要考虑怎么优化掉正则匹配）
@@ -184,15 +271,22 @@ void HttpServer::Dispatcher(http::HttpRequest &request, http::HttpResponse *resp
         return functor(request, response); // 执行功能性请求函数，传入空response和请求信息
     }
     SPDLOG_WARN("没有找到请求的函数方法");
-    response->_status = 404;
+    response->_status = 404;*/
 }
  /* brief: 对功能性请求进行路由(还没有确认方法) */
 void HttpServer::Route(http::HttpRequest &request, http::HttpResponse *response) {
+    //1 静态资源优先匹配
+    if(IsFileHandler(request)) {
+        return FileHandler(request, response);
+    }
+
+    //2 动态路由分发
+    Dispatcher(request, response);
     //step 1:对请求进行分辨，是一个静态资源请求，还是一个功能性请求
     // 静态资源请求，则进行静态资源的处理
     // 功能性请求，则需要通过几个请求路由表来确定是否有处理函数
     // GET\HEAD 都先默认是静态资源请求
-    if(IsFileHandler(request) == true) {
+    /*if(IsFileHandler(request) == true) {
         return FileHandler(request, response);
     }
     SPDLOG_DEBUG("开始对非静态资源请求进行路由");
@@ -214,7 +308,7 @@ void HttpServer::Route(http::HttpRequest &request, http::HttpResponse *response)
     }
 
     response->_status = 405; // METHOD NOT ALLOWED
-    return;
+    return;*/
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /* brief: 向服务器注册可读事件触发后的处理函数 */
@@ -255,7 +349,22 @@ void HttpServer::OnMessage(const std::shared_ptr<src::Connection> &connection, s
         //重置上下文
         context->Reset();
         //step 5. 根据长短连接判断是否关闭连接或者继续处理
-        if(response.IsClose()) { connection->Shutdown(); }
+        if(response.IsClose()) { 
+            connection->Shutdown(); 
+            break;
+        }
+
+        if (connection->IsWriting()) {
+             // 注意：这里退出循环意味着剩下的 buffer 数据留待下次处理。
+             // 由于 epoll 是水平触发(LT)或边缘触发(ET)不同，如果 buffer 里还有数据但没读完，
+             // 下次 ReadCallback 可能不会触发。
+             // 但由于我们 shrink 了 buffer，且 Connection 只有在 socket 可读时才回调，
+             // 所以这里最安全的做法是：不做 Pipelining 支持，或者简单的 break。
+             
+             // 鉴于目前的架构，最稳妥的修复是：处理完一个请求就 break，不循环处理 pipeline。
+             // 等待客户端发送新包或者下一次 epoll 触发。
+            break;
+        }
     }
 }
 
