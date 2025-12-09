@@ -105,7 +105,13 @@ void HttpServer::WriteResponse(const std::shared_ptr<src::Connection> &connectio
         SPDLOG_TRACE("请求静态资源, 用SendFile实现零拷贝");
         int fd = std::stoi(response.GetHeader("X-SENDFILE-FD"));
         size_t size = std::stoul(response.GetHeader("X-SENDFILE-SIZE"));
-        connection->SendFile(fd, size);
+
+        //获取 Offset, 默认为 0;
+        off_t offset = 0;
+        if(response.HasHeader("X-SENDFILE-OFFSET")) {
+            offset = std::stoll(response.GetHeader("X-SENDFILE-OFFSET"));
+        }
+        connection->SendFile(fd, offset, size);
     } else if(!response._body.empty()) {
         SPDLOG_TRACE("请求普通资源, 调用Send发送body");
         connection->Send(response._body.c_str(), response._body.size());
@@ -160,13 +166,53 @@ void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpRespons
         ErrorHandler(request, response);
         return;
     }
+    size_t file_size = st.st_size;
+    std::string mime = util::Util::ExtMime(request_path);
 
-    response->_status = 200;
-    response->SetHeader("Content-Length", std::to_string(st.st_size));
-    response->SetHeader("Content-Type", util::Util::ExtMime(request_path));
+    //step3: 设置通用头部
+    response->SetHeader("Content-Type", mime);
+    response->SetHeader("Accept-Ranges", "bytes"); // 告诉浏览器支持断点续传/视频拖动
 
-    response->_headers["X-SENDFILE-FD"] = std::to_string(fd);
-    response->_headers["X-SENDFILE-SIZE"] = std::to_string(st.st_size);
+    //step4: 检查 Range 头部
+    if(request.HasHeader("Range")) {
+        SPDLOG_DEBUG("该请求是Range请求");
+        std::string_view range_val = request.GetHeaderView("Range");
+        off_t start = 0;
+        off_t end = file_size - 1;
+
+        //解析 Range
+        util::Util::ParseRange(range_val, file_size, start, end);
+
+        //校验 Range 合法性
+        if(start > end || start >= file_size) {
+            SPDLOG_WARN("该Range请求不合法: Range: {}", range_val);
+            response->_status = 416; //Range Not Satisfiable
+            response->SetHeader("Content-Range", "bytes */" + std::to_string(file_size));
+            close(fd);
+            return;
+        }
+        SPDLOG_DEBUG("合法Range请求");
+        size_t content_len = end - start + 1;
+
+        response->_status = 206; // Partial Content
+        response->SetHeader("Content-Length", std::to_string(content_len));
+        std::string content_range = "bytes " + std::to_string(start) + "-" + std::to_string(end) + "/" + std::to_string(file_size);
+        response->SetHeader("Content-Range", content_range);
+        SPDLOG_TRACE("构造Range响应: Content-Range: {}", content_range);
+        //通过自定义头部传给WriteResponse
+        response->_headers["X-SENDFILE-FD"] = std::to_string(fd);
+        response->_headers["X-SENDFILE-SIZE"] = std::to_string(content_len);
+        response->_headers["X-SENDFILE-OFFSET"] = std::to_string(start); // 传递偏移量
+    } else {
+        SPDLOG_DEBUG("该请求是非Range请求");
+        response->_status = 200;
+        response->SetHeader("Content-Length", std::to_string(file_size));
+
+        response->_headers["X-SENDFILE-FD"] = std::to_string(fd);
+        response->_headers["X-SENDFILE-SIZE"] = std::to_string(st.st_size);
+        response->_headers["X-SENDFILE-OFFSET"] = "0"; // 默认偏移量0
+    }
+    
     // 判断 MIME 是否以 image/ 开头，如果是，就开启缓存
     /* if(mime.rfind("image/", 0) == 0) response->SetHeader("Cache-Control", "max-age=31536000, public"); */
     response->_body.clear();
