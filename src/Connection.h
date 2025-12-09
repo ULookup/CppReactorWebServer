@@ -12,7 +12,8 @@
 namespace webserver::src 
 {
 
-static constexpr size_t kMaxSendChunk = 64 * 1024; 
+static constexpr size_t kMaxSendChunk = 1024 * 1024; 
+static constexpr size_t kMaxBytesPerLoop = 8 * 1024 * 1024;
 
 enum ConnectStatus {
     DISCONNECTED,   //已关闭

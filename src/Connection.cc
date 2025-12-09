@@ -71,40 +71,60 @@ void Connection::HandleRead() {
 
 /* brief：写事件回调函数，用于 epoll 写事件就绪后（即上层调用 Send 函数，把数据交给了连接的发送缓冲区），将连接发送缓冲区的内容传给 socket发送缓冲区 */
 void Connection::HandleWrite() {
+    size_t total_sent_in_loop = 0; // 记录本次回调累计发送的数据量
     // step1: 优先发送内存Buffer（通常Headers在这里）
     if(_out_buffer.ReadableBytes() > 0) {
-        // 内存输出缓冲区Buffer有数据，发送
-        SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区有数据待发送: {}", _loop->GetId(), _conn_id, _out_buffer.ReadableBytes());
-        ssize_t ret = _socket.NonBlockSend(_out_buffer.ReadPos(), _out_buffer.ReadableBytes());
-        if(ret < 0) {
-            // Socket发送数据失败（一般是对端关闭连接)
-            return Release();
+        while(_out_buffer.ReadableBytes() > 0) {
+            // 内存输出缓冲区Buffer有数据，发送
+            SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区有数据待发送: {}", _loop->GetId(), _conn_id, _out_buffer.ReadableBytes());
+            ssize_t ret = _socket.NonBlockSend(_out_buffer.ReadPos(), _out_buffer.ReadableBytes());
+            if(ret < 0) {
+                // Socket发送数据失败（一般是对端关闭连接)
+                return Release();
+            }
+            SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区发送了数据: {}", _loop->GetId(), _conn_id, ret);
+            _out_buffer.MoveReadOffset(ret);
+            total_sent_in_loop += ret;
+
+            if(total_sent_in_loop >= kMaxBytesPerLoop) {
+                // 单次 Loop 的配额用尽，主动让出 Cpu
+                SPDLOG_TRACE("[Connnection: {}] 单次发送文件配额用尽, 此次发送了: {} bytes", _conn_id, total_sent_in_loop);
+                return;
+            }
         }
-        SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区发送了数据: {}", _loop->GetId(), _conn_id, ret);
-        _out_buffer.MoveReadOffset(ret);
     }
 
     // step2: 如果内存输出缓冲区Buffer发送完了，检查是否有文件要发送（Body通常在这里）
     if(_out_buffer.ReadableBytes() == 0 && _filectx.active) {
         // 原来SendFileInLoop 的逻辑移到这里
         // 真正的 sendfile 系统调用逻辑
-        size_t send_len = std::min(_filectx.remain, kMaxSendChunk);
-        SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 需要发送文件的大小为: {}bytes", _loop->GetId(), _conn_id, send_len);
-        ssize_t sent = sendfile(_sockfd, _filectx.fd, &_filectx.offset, send_len);
-        if(sent > 0) {
-            SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 发送了 {}bytes 的文件", _loop->GetId(), _conn_id, sent);
-            _filectx.remain -= sent;
-            if(_filectx.remain == 0) {
-                SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 文件发送完毕", _loop->GetId(), _conn_id);
-                close(_filectx.fd);
-                _filectx.Reset();
-            }
-        } else {
-            if(errno != EAGAIN || errno != EINTR) {
-                SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 文件发送失败, 关闭并释放连接");
-                close(_filectx.fd);
-                _filectx.Reset();
-                return Release();
+        while(_filectx.remain > 0) {
+            size_t send_len = std::min(_filectx.remain, kMaxSendChunk);
+            SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 需要发送文件的大小为: {}bytes", _loop->GetId(), _conn_id, send_len);
+            ssize_t sent = sendfile(_sockfd, _filectx.fd, &_filectx.offset, send_len);
+            if(sent > 0) {
+                SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 发送了 {}bytes 的文件", _loop->GetId(), _conn_id, sent);
+                _filectx.remain -= sent;
+                total_sent_in_loop += sent;
+                if(_filectx.remain == 0) {
+                    SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 文件发送完毕", _loop->GetId(), _conn_id);
+                    close(_filectx.fd);
+                    _filectx.Reset();
+                    break;
+                }
+                // 配额检查
+                if(total_sent_in_loop >= kMaxBytesPerLoop) {
+                    SPDLOG_TRACE("[Connection: {}] 配额用尽, 此次写了 {} bytes", _conn_id, total_sent_in_loop);
+                    return;
+                }
+            } else {
+                if(errno != EAGAIN || errno != EINTR) {
+                    SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 文件发送失败, 关闭并释放连接");
+                    close(_filectx.fd);
+                    _filectx.Reset();
+                    return Release();
+                }
+                break;
             }
         }
     }
