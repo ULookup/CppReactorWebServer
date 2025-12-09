@@ -39,6 +39,8 @@ public:
 
     char *ReadPos() { return Begin() + _reader_idx; }
 
+    const char *ReadPos() const { return &*(_buffer.begin()) + _reader_idx; }
+
     char *WritePos() { return Begin() + _writer_idx; }
 
     /* brief: Equal to Write() and WriteAndPush() */
@@ -63,6 +65,11 @@ public:
         assert(len <= WritableBytes());
     }
 
+    /* brief: 返回一段数据的视图，但不移动 reader_idx */
+    std::string_view PeekAsStringView(size_t len) const {
+        assert(len <= ReadableBytes());
+        return std::string_view(ReadPos(), len);
+    }
     /* brief: Equal to MoveReadOffset(uint64_t step) */
     void MoveReadOffset(size_t len) {
         assert(len <= ReadableBytes());
