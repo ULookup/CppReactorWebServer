@@ -7,7 +7,6 @@ void HttpRequest::Reset() {
     _method.clear();
     _path.clear();
     _version = "HTTP/1.1";
-    std::smatch match;      // 正则匹配后面想办法优化掉
     _body.clear();
     _headers.clear();
     _params.clear();
@@ -23,6 +22,12 @@ std::string HttpRequest::GetHeader(const std::string &key) const {
     auto it = _headers.find(key);
     if(it == _headers.end()) return "";
     return it->second;
+}
+/* brief: 获取指定头部字段的视图（零拷贝） */
+std::string_view HttpRequest::GetHeaderView(const std::string &key) const {
+    auto it = _headers.find(key);
+    if(it == _headers.end()) return {}; //返回空的 view
+    return it->second; // 隐式转换为 string_view
 }
 /* brief: 判断是否存在指定查询字符串 */
 bool HttpRequest::HasParam(const std::string &key) const {

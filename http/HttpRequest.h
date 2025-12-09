@@ -21,6 +21,8 @@ public:
     bool HasHeader(const std::string &key) const;
     /* brief: 获取指定头部字段 */
     std::string GetHeader(const std::string &key) const;
+    /* brief: 获取指定头部字段的视图(零拷贝) */
+    std::string_view GetHeaderView(const std::string &key) const;
     /* brief: 插入查询字符串 */
     void SetParam(const std::string &key, const std::string &val) { _params.insert(std::make_pair(key, val)); }
     /* brief: 判断是否存在指定查询字符串 */
