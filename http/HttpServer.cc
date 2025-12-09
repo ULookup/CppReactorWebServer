@@ -173,6 +173,15 @@ void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpRespons
     response->SetHeader("Content-Type", mime);
     response->SetHeader("Accept-Ranges", "bytes"); // 告诉浏览器支持断点续传/视频拖动
 
+    //step3.1: 设置特殊头部
+    response->SetHeader("Access-Control-Allow-Origin", "*");
+    response->SetHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+
+    //ts 切片：强制缓存1年
+    if(mime == "video/mp2t") { response->SetHeader("Cache-Control", "public, max-age=31536000, immutable"); }
+    else if(mime == "application/vnd.apple.mpegurl") { response->SetHeader("Cache-Control", "no-cache"); } // m3u8索引，不缓存或者短缓存(防止更新了切片还在用旧索引)
+    else { response->SetHeader("Cache-Control", "publicm max-age=3600"); } //其它静态资源默认缓存策略
+
     //step4: 检查 Range 头部
     if(request.HasHeader("Range")) {
         SPDLOG_DEBUG("该请求是Range请求");
