@@ -29,8 +29,8 @@ void Connection::Send(const char *data, size_t len) {
     });
 }
 /* brief: SendFile 发送 */
-void Connection::SendFile(int fd, size_t size) {
-    _loop->RunInLoop(std::bind(&Connection::SendFileInLoop, this, fd, size));
+void Connection::SendFile(int fd, off_t offset, size_t size) {
+    _loop->RunInLoop(std::bind(&Connection::SendFileInLoop, this, fd, offset, size));
 }
 /* brief: 进入关闭连接流程，需要在对应的 EventLoop线程 内执行 */
 void Connection::Shutdown() { _loop->RunInLoop(std::bind(&Connection::ShutdownInLoop, this)); }
@@ -88,8 +88,9 @@ void Connection::HandleWrite() {
     if(_out_buffer.ReadableBytes() == 0 && _filectx.active) {
         // 原来SendFileInLoop 的逻辑移到这里
         // 真正的 sendfile 系统调用逻辑
-        SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 需要发送文件的大小为: {}bytes", _loop->GetId(), _conn_id, _filectx.remain);
-        ssize_t sent = sendfile(_sockfd, _filectx.fd, &_filectx.offset, _filectx.remain);
+        size_t send_len = std::min(_filectx.remain, kMaxSendChunk);
+        SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 需要发送文件的大小为: {}bytes", _loop->GetId(), _conn_id, send_len);
+        ssize_t sent = sendfile(_sockfd, _filectx.fd, &_filectx.offset, send_len);
         if(sent > 0) {
             SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 发送了 {}bytes 的文件", _loop->GetId(), _conn_id, sent);
             _filectx.remain -= sent;
@@ -189,7 +190,7 @@ void Connection::SendInLoop(Buffer &buf) {
     if(_channel.WritAble() == false) _channel.EnableWrite();
 }
 /* brief: 实际发送的函数 */
-void Connection::SendFileInLoop(int fd, size_t size) {
+void Connection::SendFileInLoop(int fd, off_t offset, size_t size) {
     // 如果上一个文件还没发送完，这里需要处理策略（报错或排队）
     if(_filectx.active) {
         //上一个文件还没发完，应用层回等待上一条发完
@@ -199,7 +200,7 @@ void Connection::SendFileInLoop(int fd, size_t size) {
     }
     // 上一个文件发完了, Connection 空闲
     _filectx.fd = fd;
-    _filectx.offset = 0;
+    _filectx.offset = offset;
     _filectx.remain = size;
     _filectx.active = true;
 

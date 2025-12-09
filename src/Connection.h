@@ -12,6 +12,8 @@
 namespace webserver::src 
 {
 
+static constexpr size_t kMaxSendChunk = 64 * 1024; 
+
 enum ConnectStatus {
     DISCONNECTED,   //已关闭
     CONNECTING,     //连接状态，正在连接的流程中
@@ -65,7 +67,7 @@ public:
     /* brief: 发送数据，需要在对应的 EventLoop线程 内执行 */
     void Send(const char *data, size_t len);
     /* brief: SendFile 发送 */
-    void SendFile(int fd, size_t size);
+    void SendFile(int fd, off_t offset, size_t size);
 
     /* brief: 进入关闭连接流程，需要在对应的 EventLoop线程 内执行 */
     void Shutdown();
@@ -95,7 +97,7 @@ private:
     void EstablishedInLoop();
     void ReleaseInLoop();
     void SendInLoop(Buffer &buf);
-    void SendFileInLoop(int fd, size_t size);
+    void SendFileInLoop(int fd, off_t offset, size_t size);
     void ShutdownInLoop();
     void EnableInactiveReleaseInLoop(int sec);
     void CancleInactiveReleaseInLoop();
@@ -106,7 +108,6 @@ private:
                 const AnyEventCallback &anyeventcb);
     /* brief: 响应上下文 */
     void StartResponseInLoop(bool clexpect_closeose);
-    void EndHeaderSendInLoop();
 private:
     uint64_t _conn_id;                  // 连接的唯一id，计时器的唯一id也由它标识
     int _sockfd;                        // 该连接管理的套接字文件描述符
