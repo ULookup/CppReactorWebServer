@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebServer HLS Player Test</title>
+    <!-- 1. 引入 hls.js -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --header-bg: #1c1c1c;
+            --text-main: #f1f1f1;
+            --text-sec: #aaaaaa;
+            --accent: #3ea6ff;
+            --border: #333;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+        
+        body { background-color: var(--bg-color); color: var(--text-main); overflow-x: hidden; }
+
+        header {
+            height: 56px;
+            background-color: var(--header-bg);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid var(--border);
+        }
+        .logo { font-weight: bold; font-size: 20px; color: var(--text-main); display: flex; align-items: center; gap: 5px; }
+        .logo span { color: #ff0033; }
+        .search-bar { flex: 1; max-width: 600px; margin: 0 auto; display: flex; }
+        .search-input { 
+            width: 100%; background: #121212; border: 1px solid #333; padding: 8px; color: white; border-radius: 20px 0 0 20px; outline: none; 
+        }
+        .search-btn {
+            background: #333; border: 1px solid #333; padding: 0 20px; border-radius: 0 20px 20px 0; cursor: pointer; color: #aaa;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 24px;
+            padding: 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .video-section { display: flex; flex-direction: column; }
+        
+        .player-wrapper {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            position: relative;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .video-info { margin-top: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+        .video-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+        .video-meta { display: flex; justify-content: space-between; color: var(--text-sec); font-size: 14px; }
+        .actions { display: flex; gap: 15px; }
+        .action-btn { cursor: pointer; display: flex; align-items: center; gap: 5px; font-weight: 500; }
+        .action-btn:hover { color: var(--text-main); }
+
+        .sidebar { display: flex; flex-direction: column; gap: 10px; }
+        .rec-card { display: flex; gap: 8px; cursor: pointer; }
+        .rec-thumb { width: 168px; height: 94px; background: #333; border-radius: 8px; }
+        .rec-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .rec-title { font-size: 14px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .rec-meta { font-size: 12px; color: var(--text-sec); }
+
+        .debug-panel {
+            margin-top: 20px;
+            background: #1c1c1c;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .debug-header { color: var(--accent); font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px;}
+        .log-box { height: 200px; overflow-y: auto; color: #0f0; }
+        .log-entry { margin-bottom: 2px; word-break: break-all; }
+        .log-warn { color: #ffcc00; }
+        .log-err { color: #ff3333; }
+        .log-hls { color: #00ccff; }
+
+        @media (max-width: 1000px) {
+            .container { grid-template-columns: 1fr; }
+            .sidebar { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo"><span>▶</span> MyTube HLS</div>
+        <div class="search-bar">
+            <!-- 默认建议输入 .m3u8 路径 -->
+            <input type="text" class="search-input" value="/video/index.m3u8" placeholder="输入 .m3u8 或 .mp4 路径...">
+            <button class="search-btn">🔍</button>
+        </div>
+        <div style="width: 32px; height: 32px; background: #555; border-radius: 50%; margin-left: 20px;"></div>
+    </header>
+
+    <div class="container">
+        <div class="video-section">
+            <div class="player-wrapper">
+                <!-- Video 标签不需要 Source，交给 JS 控制 -->
+                <video id="myVideo" controls crossorigin="anonymous"></video>
+            </div>
+
+            <div class="video-info">
+                <div class="video-title">C++ WebServer HLS 流媒体测试</div>
+                <div class="video-meta">
+                    <span>HLS (m3u8) 模式 • 极速加载</span>
+                    <div class="actions">
+                        <div class="action-btn">👍 1024</div>
+                        <div class="action-btn">👎 0</div>
+                        <div class="action-btn">↗ 分享</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="debug-panel">
+                <div class="debug-header">🛠️ 播放器调试日志 (HLS/Event)</div>
+                <div class="log-box" id="logBox">
+                    <div class="log-entry">系统初始化完成...</div>
+                </div>
+            </div>
+            
+            <div style="margin-top: 20px; color: var(--text-sec); line-height: 1.6;">
+                <h3>测试说明：</h3>
+                <p>1. 默认加载 <b>/video/index.m3u8</b> (请确保服务器有此文件)。</p>
+                <p>2. 观察日志：HLS 模式下会看到 ".ts" 切片下载日志。</p>
+                <p>3. 兼容性：如果输入 .mp4 文件，会自动降级为原生 Range 请求播放。</p>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="rec-card" onclick="playUrl('/test.mp4')">
+                <div class="rec-thumb" style="background: #444; display:flex; align-items:center; justify-content:center; color:#888;">MP4</div>
+                <div class="rec-info">
+                    <div class="rec-title">测试 MP4 回退兼容性</div>
+                    <div class="rec-meta">Range Test<br>Legacy Mode</div>
+                </div>
+            </div>
+            <div class="rec-card" onclick="playUrl('/video/index.m3u8')">
+                <div class="rec-thumb" style="background: #555; display:flex; align-items:center; justify-content:center; color:#3ea6ff;">HLS</div>
+                <div class="rec-info">
+                    <div class="rec-title">重新加载 HLS 视频</div>
+                    <div class="rec-meta">m3u8 Mode<br>High Performance</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('myVideo');
+        const logBox = document.getElementById('logBox');
+        const searchBtn = document.querySelector('.search-btn');
+        const searchInput = document.querySelector('.search-input');
+        
+        let hls = null; // 全局 HLS 对象
+
+        // 日志功能
+        function log(msg, type = 'info') {
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            div.textContent = `[${time}] ${msg}`;
+            div.className = 'log-entry';
+            if(type === 'warn') div.classList.add('log-warn');
+            if(type === 'error') div.classList.add('log-err');
+            if(type === 'hls') div.classList.add('log-hls');
+            logBox.appendChild(div);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        // 核心播放逻辑
+        function playUrl(url) {
+            if(!url) return;
+            
+            // 更新 UI
+            document.querySelector('.video-title').textContent = url;
+            searchInput.value = url;
+            log(`准备加载: ${url}`, 'warn');
+
+            // 1. 如果之前有 HLS 实例，销毁它
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+
+            // 2. 判断是否是 m3u8
+            if (url.endsWith('.m3u8')) {
+                // === HLS 逻辑 ===
+                if (Hls.isSupported()) {
+                    log('检测到 m3u8，使用 HLS.js 引擎', 'hls');
+                    hls = new Hls({
+                        debug: false, // 开启 HLS 内部调试可设为 true
+                        enableWorker: true, // 开启多线程 Worker
+                        lowLatencyMode: true // 低延迟模式
+                    });
+                    
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+
+                    // 绑定 HLS 事件用于日志
+                    hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                        log(`HLS 索引解析成功，共 ${data.levels.length} 个清晰度，开始播放`, 'hls');
+                        video.play().catch(e => log('自动播放被拦截，请手动点击播放', 'warn'));
+                    });
+                    
+                    hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+                        // 打印切片加载信息，证明是分片下载
+                        log(`⬇️ 切片下载完成: sn=${data.frag.sn}, dur=${data.frag.duration}s, size=${(data.stats.total/1024).toFixed(1)}KB`, 'hls');
+                    });
+
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.fatal) {
+                            switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                log('HLS 网络错误，尝试恢复...', 'error');
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                log('HLS 媒体解码错误，尝试恢复...', 'error');
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                log('HLS 致命错误，无法恢复', 'error');
+                                hls.destroy();
+                                break;
+                            }
+                        }
+                    });
+
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // === Safari 原生支持 HLS ===
+                    log('检测到 Safari 环境，使用原生 HLS 支持', 'hls');
+                    video.src = url;
+                    video.addEventListener('loadedmetadata', () => {
+                        video.play();
+                    });
+                } else {
+                    log('您的浏览器不支持 HLS (m3u8) 播放', 'error');
+                }
+            } else {
+                // === 普通 MP4 (Range) 逻辑 ===
+                log('检测到普通文件，使用原生 Video 标签播放 (Range Mode)');
+                video.src = url;
+                video.load();
+                video.play();
+            }
+        }
+
+        // 搜索栏逻辑
+        searchBtn.onclick = () => playUrl(searchInput.value.trim());
+        searchInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') playUrl(searchInput.value.trim()); });
+
+        // 原生 Video 事件监听 (通用的)
+        video.addEventListener('waiting', () => log('⌛ 缓冲中...'));
+        video.addEventListener('playing', () => log('▶️ 播放中'));
+        video.addEventListener('pause', () => log('⏸️ 暂停'));
+        video.addEventListener('error', () => {
+            if(video.error) log(`❌ 播放器错误: code=${video.error.code}, msg=${video.error.message}`, 'error');
+        });
+
+        // 页面加载默认播放
+        window.onload = () => {
+            // 尝试加载默认的 m3u8
+            playUrl(searchInput.value.trim());
+        }
+    </script>
+</body>
+</html>
