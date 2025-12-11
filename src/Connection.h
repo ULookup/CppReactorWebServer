@@ -47,8 +47,9 @@ public:
     Connection(EventLoop *loop, uint64_t conn_id, int sockfd);
     ~Connection() { SPDLOG_INFO("释放连接 fd = {}", _sockfd); }
 
-    int GetFd() { return _sockfd; }
-    int GetConnId() { return _conn_id; }
+    int GetFd() const { return _sockfd; }
+    int GetConnId() const { return _conn_id; }
+    EventLoop *GetLoop() const { return _loop; }
 
     /* brief: 判断该连接所处状态 */
     bool IsConnected() { return _status == CONNECTED; }
