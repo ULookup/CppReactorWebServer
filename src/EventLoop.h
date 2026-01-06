@@ -6,7 +6,7 @@
 #include <mutex>
 #include <cassert>
 #include <sys/eventfd.h>
-#include <spdlog/spdlog.h>
+#include "InitLog.h"
 
 #define DEBUG
 

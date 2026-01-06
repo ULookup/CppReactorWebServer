@@ -1,5 +1,4 @@
-#ifndef __INITLOG_H__
-#define __INITLOG_H__
+#pragma once
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -24,5 +23,3 @@ void init_logger(bool mode, const std::string &filename, int32_t level);
 #define LOG_FATAL(format, ...) log::g_default_logger->critical(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
 
 }
-
-#endif

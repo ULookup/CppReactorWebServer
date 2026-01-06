@@ -11,10 +11,10 @@ TcpServer::TcpServer(uint16_t port)
     }
 /* brief: 启动服务器 */
 void TcpServer::Start() {
-    SPDLOG_TRACE("创建线程池");
+    LOG_TRACE("创建线程池");
     //printf("创建线程池\n");
     _threadpool.Create();
-    SPDLOG_TRACE("启动 baseloop");
+    LOG_TRACE("启动 baseloop");
     //printf("启动 baseloop\n");
     _baseloop.Start();
 }
@@ -30,11 +30,11 @@ void TcpServer::RunAfterInLoop(const Functor &task, int delay) {
 }
 /* brief: Acceptor的可读事件回调函数 */
 void TcpServer::NewConnection(int fd) {
-        SPDLOG_INFO("Accept 一个新连接, fd = {}", fd);
+        LOG_INFO("Accept 一个新连接, fd = {}", fd);
         _next_id++;
         // 构造出一个Connection对象（注：这里可以用内存池优化）
         std::shared_ptr<Connection> connection(new Connection(_threadpool.NextLoop(), _next_id, fd));
-        SPDLOG_TRACE("为新连接新建一个 Connection");
+        LOG_TRACE("为新连接新建一个 Connection");
         connection->SetMessageCallback(_message_callback);
         connection->SetClosedCallback(_closed_callback);
         connection->SetConnectedCallback(_connected_callback);

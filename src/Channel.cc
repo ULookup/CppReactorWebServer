@@ -31,7 +31,7 @@ void Channel::Remove() { return _loop->RemoveEvent(this); }
 void Channel::Update() { return _loop->UpdateEvent(this); }
 
 void Channel::HandlerEvent() {
-    SPDLOG_TRACE("Channel = {}, revents = {}", _fd, _revents);
+    LOG_TRACE("Channel = {}, revents = {}", _fd, _revents);
     if((_revents & EPOLLIN) || (_revents & EPOLLRDHUP) || (_revents & EPOLLPRI)) {
         if(_read_callback) _read_callback();
     }

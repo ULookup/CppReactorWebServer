@@ -194,7 +194,7 @@ std::vector<std::string_view> Util::SplitLine(const std::string &line) {
 
     //找到了空格，放入 Method
     result.emplace_back(line_view.substr(0, sep)); // 请求方法
-    SPDLOG_TRACE("Method(line_view.substr(0, sep)): {}", line_view.substr(0, sep));
+    LOG_TRACE("Method(line_view.substr(0, sep)): {}", line_view.substr(0, sep));
     current_global_pos = sep + 1; // 游标移动到空格后的位置（请求url开始）
 
     //step2: 从游标开始查找第二个空格
@@ -207,7 +207,7 @@ std::vector<std::string_view> Util::SplitLine(const std::string &line) {
     } else {
         // 找到了空格
         url = line_view.substr(current_global_pos, sep - current_global_pos);
-        SPDLOG_TRACE("Url(line_view.substr(current_global_pos, sep - current_global_pos)): {}", url);   
+        LOG_TRACE("Url(line_view.substr(current_global_pos, sep - current_global_pos)): {}", url);   
     }
 
     //step3: 在URI内部查找 '?' ，分割 Path 和 Params
@@ -216,24 +216,24 @@ std::vector<std::string_view> Util::SplitLine(const std::string &line) {
     if(sep == std::string_view::npos) {
         // 没有参数
         result.emplace_back(url); // 请求路径
-        SPDLOG_TRACE("Path(Url): {}", url);   
+        LOG_TRACE("Path(Url): {}", url);   
         result.emplace_back("");  // 空请求参数
-        SPDLOG_TRACE("Params(NULL): NULL");
+        LOG_TRACE("Params(NULL): NULL");
     } else {
         // 有参数
         result.emplace_back(url.substr(0, sep)); // 放入Path，局部索引从0到Sep
-        SPDLOG_TRACE("Path(uri.substr(0, sep)): {}", url.substr(0, sep));  
+        LOG_TRACE("Path(uri.substr(0, sep)): {}", url.substr(0, sep));  
         result.emplace_back(url.substr(sep + 1)); // 放入Params，局部索引从Sep + 1到结尾
-        SPDLOG_TRACE("Params(uri.substr(sep + 1)): {}", url.substr(sep + 1));   
+        LOG_TRACE("Params(uri.substr(sep + 1)): {}", url.substr(sep + 1));   
     }
     
     //step4: 放入Version
     if(url_end != std::string_view::npos) {
         result.emplace_back(line_view.substr(url_end + 1)); // 协议版本
-        SPDLOG_TRACE("Version(line_view.substr(uri_end + 1)): {}", line_view.substr(url_end + 1));   
+        LOG_TRACE("Version(line_view.substr(uri_end + 1)): {}", line_view.substr(url_end + 1));   
     } else {
         result.emplace_back(""); // 缺少协议版本
-        SPDLOG_TRACE("Version(NULL): NULL");   
+        LOG_TRACE("Version(NULL): NULL");   
     }
 
     return result;
@@ -353,14 +353,14 @@ std::vector<std::string> Util::SplitPath(const std::string &path) {
     size_t end = path.find('/', start);
     while(end != std::string::npos) {
         if(end > start) {
-            SPDLOG_TRACE("解析到一个结点: {}", path.substr(start, end - start));
+            LOG_TRACE("解析到一个结点: {}", path.substr(start, end - start));
             result.emplace_back(path.substr(start, end - start));
         }
         start = end + 1;
         end = path.find('/', start);
     }
     if(start < path.length()) {
-        SPDLOG_TRACE("解析到一个结点: {}", path.substr(start));
+        LOG_TRACE("解析到一个结点: {}", path.substr(start));
         result.emplace_back(path.substr(start));
     }
 

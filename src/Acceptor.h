@@ -21,7 +21,7 @@ public:
     /* brief: 给上传使用，开始监听（开启对读事件的监控） */
     void Listen() { 
         _channel.EnableRead(); 
-        SPDLOG_TRACE("channel: {} ,开启对读事件监控", _channel.GetFd());
+        LOG_TRACE("channel: {} ,开启对读事件监控", _channel.GetFd());
     }
 private:
     /* brief: 给Accptor管理的底层 channel 设置读事件回调函数。由于 Acceptor 只需要承担分配新连接的工作，所以只需要设置可读事件回调 */

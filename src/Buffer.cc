@@ -2,7 +2,7 @@
 #include "../net/Socket.hpp"
 #include <cerrno>
 #include <sys/uio.h>
-#include <spdlog/spdlog.h>
+#include "InitLog.h"
 
 namespace webserver::src
 {
@@ -21,7 +21,7 @@ ssize_t Buffer::ReadFd(int fd, int *savedErrno) {
     const int iovcnt = (writable < sizeof(extrabuf)) ? 2 : 1;
     const ssize_t n = readv(fd, vec, iovcnt);
     if(n == 0) {
-        SPDLOG_TRACE("对端关闭连接");
+        LOG_TRACE("对端关闭连接");
         return -1;
     }
     else if(n < 0) {
@@ -29,7 +29,7 @@ ssize_t Buffer::ReadFd(int fd, int *savedErrno) {
         if(errno == EAGAIN || errno == EINTR) {
             return 0;
         }
-        SPDLOG_ERROR("读取 socket 缓冲区出错, errno = {}", errno);
+        LOG_ERROR("读取 socket 缓冲区出错, errno = {}", errno);
         return -1;
     }
     else if(n <= writable) {

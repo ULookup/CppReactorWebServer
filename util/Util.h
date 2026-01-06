@@ -8,7 +8,7 @@
 #include <fstream>
 #include <charconv>
 #include <sys/stat.h>
-#include <spdlog/spdlog.h>
+#include "InitLog.h"
 
 namespace webserver::util
 {

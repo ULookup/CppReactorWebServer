@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <string_view>
 #include <regex>
-#include <spdlog/spdlog.h>
+#include "InitLog.h"
 
 namespace webserver::http
 {

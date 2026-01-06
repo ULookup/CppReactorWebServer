@@ -7,7 +7,7 @@
 //#include "../util/Any.hpp" 这里可以用我自己写的 any，谁更好则需要后续来验证
 #include <any>
 #include <sys/sendfile.h>
-#include <spdlog/spdlog.h>
+#include "InitLog.h"
 
 namespace webserver::src 
 {
@@ -45,7 +45,7 @@ class Connection : public std::enable_shared_from_this<Connection>
     using AnyEventCallback = std::function<void(const std::shared_ptr<Connection>&)>; 
 public:
     Connection(EventLoop *loop, uint64_t conn_id, int sockfd);
-    ~Connection() { SPDLOG_INFO("释放连接 fd = {}", _sockfd); }
+    ~Connection() { LOG_INFO("释放连接 fd = {}", _sockfd); }
 
     int GetFd() const { return _sockfd; }
     int GetConnId() const { return _conn_id; }

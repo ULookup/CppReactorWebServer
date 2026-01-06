@@ -1,5 +1,5 @@
 #include "HttpServer.h"
-#include <spdlog/spdlog.h>
+#include "InitLog.h"
 
 namespace webserver::server
 {
@@ -92,17 +92,17 @@ void HttpServer::WriteResponse(const std::shared_ptr<src::Connection> &connectio
     }
 
     header += "\r\n";
-    SPDLOG_TRACE("HttpResponse 的 Headers:");
-    SPDLOG_TRACE("{}", header);
+    LOG_TRACE("HttpResponse 的 Headers:");
+    LOG_TRACE("{}", header);
 
     // 2.发送Header
-    SPDLOG_TRACE("调用Send, 发送响应头");
+    LOG_TRACE("调用Send, 发送响应头");
     connection->Send(header.c_str(), header.size());
     // 3 发送Body
     if(response.HasHeader("X-SENDFILE-FD")) {
         //静态资源，调用 SendFile
         //因为 Connection 保证先发Buffer后发File，所以顺序是安全的
-        SPDLOG_TRACE("请求静态资源, 用SendFile实现零拷贝");
+        LOG_TRACE("请求静态资源, 用SendFile实现零拷贝");
         int fd = std::stoi(response.GetHeader("X-SENDFILE-FD"));
         size_t size = std::stoul(response.GetHeader("X-SENDFILE-SIZE"));
 
@@ -113,46 +113,46 @@ void HttpServer::WriteResponse(const std::shared_ptr<src::Connection> &connectio
         }
         connection->SendFile(fd, offset, size);
     } else if(!response._body.empty()) {
-        SPDLOG_TRACE("请求普通资源, 调用Send发送body");
+        LOG_TRACE("请求普通资源, 调用Send发送body");
         connection->Send(response._body.c_str(), response._body.size());
     }
 }
 /* brief: 判断是不是静态资源请求 */
 bool HttpServer::IsFileHandler(const http::HttpRequest &request) {
-    SPDLOG_DEBUG("进入静态资源判断函数");
+    LOG_DEBUG("进入静态资源判断函数");
     // 1. 必须设置了静态资源根目录
     if(_basedir.empty()) return false;
     // 2. 请求方法必须是GET/HEAD
     if(request._method != "GET" && request._method != "HEAD") {
-        SPDLOG_DEBUG("请求方法不符合静态资源");
+        LOG_DEBUG("请求方法不符合静态资源");
         return false;
     }
     // 3. 请求的资源路径必须是一个合法路径
     if(util::Util::ValidPath(request._path) == false) {
-        SPDLOG_WARN("资源路径不合法");
+        LOG_WARN("资源路径不合法");
         return false;
     }
     // 4. 请求的资源必须存在，且是普通文件
     std::string request_path = _basedir + request._path; // 为了避免直接修改请求的资源路径
     if(request_path.back() == '/') request_path += "index.html";
     if(util::Util::IsRegular(request_path) == false) {
-        SPDLOG_DEBUG("资源不是普通文件: {}", request_path);
+        LOG_DEBUG("资源不是普通文件: {}", request_path);
         return false;
     }
-    SPDLOG_DEBUG("请求的资源是静态资源，退出静态资源判断函数");
+    LOG_DEBUG("请求的资源是静态资源，退出静态资源判断函数");
     return true;
 }
 /* brief: 静态资源处理函数 */
 void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpResponse *response) {
-    SPDLOG_DEBUG("进入FileHandler函数");
+    LOG_DEBUG("进入FileHandler函数");
     std::string request_path = _basedir + request._path; // 为了不破坏原始请求
     if(request_path.back() == '/') request_path += "index.html";
-    SPDLOG_TRACE("request_path: {}", request_path);
+    LOG_TRACE("request_path: {}", request_path);
     /* bool ret = util::Util::ReadFile(request_path, &response->_body); */
     //step1: 打开文件
     int fd = open(request_path.c_str(), O_RDONLY);
     if(fd < 0) {
-        SPDLOG_ERROR("打开文件失败");
+        LOG_ERROR("打开文件失败");
         response->_status = 404;
         ErrorHandler(request, response);
         return;
@@ -160,7 +160,7 @@ void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpRespons
     //step2: 获取文件状态
     struct stat st;
     if(fstat(fd, &st) < 0) {
-        SPDLOG_ERROR("获取文件状态失败");
+        LOG_ERROR("获取文件状态失败");
         close(fd);
         response->_status = 404;
         ErrorHandler(request, response);
@@ -184,7 +184,7 @@ void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpRespons
 
     //step4: 检查 Range 头部
     if(request.HasHeader("Range")) {
-        SPDLOG_DEBUG("该请求是Range请求");
+        LOG_DEBUG("该请求是Range请求");
         std::string_view range_val = request.GetHeaderView("Range");
         off_t start = 0;
         off_t end = file_size - 1;
@@ -194,26 +194,26 @@ void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpRespons
 
         //校验 Range 合法性
         if(start > end || start >= file_size) {
-            SPDLOG_WARN("该Range请求不合法: Range: {}", range_val);
+            LOG_WARN("该Range请求不合法: Range: {}", range_val);
             response->_status = 416; //Range Not Satisfiable
             response->SetHeader("Content-Range", "bytes */" + std::to_string(file_size));
             close(fd);
             return;
         }
-        SPDLOG_DEBUG("合法Range请求");
+        LOG_DEBUG("合法Range请求");
         size_t content_len = end - start + 1;
 
         response->_status = 206; // Partial Content
         response->SetHeader("Content-Length", std::to_string(content_len));
         std::string content_range = "bytes " + std::to_string(start) + "-" + std::to_string(end) + "/" + std::to_string(file_size);
         response->SetHeader("Content-Range", content_range);
-        SPDLOG_TRACE("构造Range响应: Content-Range: {}", content_range);
+        LOG_TRACE("构造Range响应: Content-Range: {}", content_range);
         //通过自定义头部传给WriteResponse
         response->_headers["X-SENDFILE-FD"] = std::to_string(fd);
         response->_headers["X-SENDFILE-SIZE"] = std::to_string(content_len);
         response->_headers["X-SENDFILE-OFFSET"] = std::to_string(start); // 传递偏移量
     } else {
-        SPDLOG_DEBUG("该请求是非Range请求");
+        LOG_DEBUG("该请求是非Range请求");
         response->_status = 200;
         response->SetHeader("Content-Length", std::to_string(file_size));
 
@@ -225,7 +225,7 @@ void HttpServer::FileHandler(const http::HttpRequest &request, http::HttpRespons
     // 判断 MIME 是否以 image/ 开头，如果是，就开启缓存
     /* if(mime.rfind("image/", 0) == 0) response->SetHeader("Cache-Control", "max-age=31536000, public"); */
     response->_body.clear();
-    SPDLOG_DEBUG("退出FileHandler函数");
+    LOG_DEBUG("退出FileHandler函数");
 }
 /* brief: 添加路由到 Trie */
 void HttpServer::AddRoute(const std::string &method, const std::string &pattern, const Handler &handler) {
@@ -255,7 +255,7 @@ void HttpServer::AddRoute(const std::string &method, const std::string &pattern,
     }
     node->_is_end = true;
     node->_handler = handler;
-    SPDLOG_DEBUG("注册路由: [{}] {}", method, pattern);
+    LOG_DEBUG("注册路由: [{}] {}", method, pattern);
 }
 /* brief: 在 Trie 中匹配路由 */
 bool HttpServer::MatchRoute(const std::string &method, const std::string &path, Handler &handler, std::unordered_map<std::string, std::string> &params) {
@@ -293,11 +293,11 @@ void HttpServer::Dispatcher(http::HttpRequest &request, http::HttpResponse *resp
     //临时存储路径参数
     std::unordered_map<std::string, std::string> path_params;
 
-    SPDLOG_DEBUG("正在匹配路由: [{}] {}", request._method, request._path);
+    LOG_DEBUG("正在匹配路由: [{}] {}", request._method, request._path);
 
     //使用 Trie 树进行匹配
     if(MatchRoute(request._method, request._path, handler, path_params)) {
-        SPDLOG_DEBUG("路由匹配成功");
+        LOG_DEBUG("路由匹配成功");
         //将提取到的路径参数合并到request的_params中
         //这样业务层可以轻松获取
         for(auto &kv : path_params) {
@@ -307,7 +307,7 @@ void HttpServer::Dispatcher(http::HttpRequest &request, http::HttpResponse *resp
         //调用业务函数
         handler(request, response);
     } else {
-        SPDLOG_WARN("路由匹配失败: 404");
+        LOG_WARN("路由匹配失败: 404");
         response->_status = 404;
         ErrorHandler(request, response);
     }
@@ -315,17 +315,17 @@ void HttpServer::Dispatcher(http::HttpRequest &request, http::HttpResponse *resp
     //思想：路由表存储的是键值对 --- 正则表达式 & 处理函数
     //使用正则表达式，对请求的资源路径进行正则匹配，匹配成功就使用对应函数处理
     //（需要考虑怎么优化掉正则匹配）
-    SPDLOG_DEBUG("对功能性请求进行分类处理");
+    LOG_DEBUG("对功能性请求进行分类处理");
     for(auto &handler : handlers) {
         const std::regex &re(handler.first);
         const Handler &functor = handler.second;
         bool ret = std::regex_match(request._path, request._matches, re);
         if(ret == false) continue;
 
-        SPDLOG_DEBUG("找到请求的函数方法");
+        LOG_DEBUG("找到请求的函数方法");
         return functor(request, response); // 执行功能性请求函数，传入空response和请求信息
     }
-    SPDLOG_WARN("没有找到请求的函数方法");
+    LOG_WARN("没有找到请求的函数方法");
     response->_status = 404;*/
 }
  /* brief: 对功能性请求进行路由(还没有确认方法) */
@@ -344,21 +344,21 @@ void HttpServer::Route(http::HttpRequest &request, http::HttpResponse *response)
     /*if(IsFileHandler(request) == true) {
         return FileHandler(request, response);
     }
-    SPDLOG_DEBUG("开始对非静态资源请求进行路由");
+    LOG_DEBUG("开始对非静态资源请求进行路由");
     if(request._method == "GET" || request._method == "") {
-        SPDLOG_TRACE("方法为 GET");
+        LOG_TRACE("方法为 GET");
         return Dispatcher(request, response, _get_route);
     }
     else if(request._method == "POST") {
-        SPDLOG_TRACE("方法为 POST");
+        LOG_TRACE("方法为 POST");
         return Dispatcher(request, response, _post_route);
     }
     else if(request._method == "PUT") {
-        SPDLOG_TRACE("方法为 PUT");
+        LOG_TRACE("方法为 PUT");
         return Dispatcher(request, response, _put_route);
     }
     else if(request._method == "DELETE") {
-        SPDLOG_TRACE("方法为 DELETE");
+        LOG_TRACE("方法为 DELETE");
         return Dispatcher(request, response, _delete_route);
     }
 
@@ -376,12 +376,12 @@ void HttpServer::OnMessage(const std::shared_ptr<src::Connection> &connection, s
         // 2. 解析正常，且请求获取完毕，才开始去处理请求
         context->RecvHttpRequest(buffer);
         http::HttpRequest &request = context->GetRequest();
-        SPDLOG_DEBUG("获取解析后的 HttpRequest 对象");
+        LOG_DEBUG("获取解析后的 HttpRequest 对象");
         http::HttpResponse response(context->GetRespStatus());
-        SPDLOG_DEBUG("创建 HttpResponse, 并写入解析过程中产生的状态码");
+        LOG_DEBUG("创建 HttpResponse, 并写入解析过程中产生的状态码");
         if(context->GetRespStatus() >= 400) {
             // 进行错误响应，关闭连接
-            SPDLOG_DEBUG("状态码大于 400, 进行错误响应");
+            LOG_DEBUG("状态码大于 400, 进行错误响应");
             ErrorHandler(request, &response); // 填充错误显示页面数据到response
             WriteResponse(connection, request, response); // 组织响应发送给客户端
             context->Reset();
@@ -391,11 +391,11 @@ void HttpServer::OnMessage(const std::shared_ptr<src::Connection> &connection, s
         }
         if(context->GetRecvStatus() != http::RECV_HTTP_OVER) {
             //当前请求还没有接收完毕，等待新数据到来继续处理
-            SPDLOG_DEBUG("当前请求还未接收完整，等待新数据到来");
+            LOG_DEBUG("当前请求还未接收完整，等待新数据到来");
             return;
         }
         //step 3. 请求路由 + 业务处理
-        SPDLOG_DEBUG("开始请求路由 + 业务处理");
+        LOG_DEBUG("开始请求路由 + 业务处理");
         Route(request, &response);
         //step 4. 对HttpResponse进行组织发送
         WriteResponse(connection, request, response);

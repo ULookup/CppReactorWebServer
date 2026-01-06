@@ -37,18 +37,18 @@ void EventLoop::PushInLoop(const Functor &cb) {
 void EventLoop::Start() {
     while(true) {
         // step1: 事件监控
-        SPDLOG_TRACE("开始事件监控");
+        LOG_TRACE("开始事件监控");
         //printf("开始事件监控\n");
         std::vector<Channel*> actives;
         _poller.Poll(actives); // 输出型参数，_poller返回活跃的Channel，channel保存了revents
         // step2: 就绪事件处理
-        SPDLOG_TRACE("处理就绪事件");
+        LOG_TRACE("处理就绪事件");
         //printf("处理就绪事件\n");
         for(auto &channel : actives) {
             channel->HandlerEvent(); // channel根据revent里的就绪事件，执行相应的回调函数
         }
         // step3: 执行任务
-        SPDLOG_TRACE("执行任务池的任务");
+        LOG_TRACE("执行任务池的任务");
         //printf("执行任务池的任务\n");
         RunAllTask();
     }

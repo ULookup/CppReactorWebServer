@@ -15,8 +15,8 @@ void init_logger(bool mode,
     if (!mode) {
         spdlog::drop("console-logger");
         g_default_logger = spdlog::stdout_color_mt("console-logger");
-        g_default_logger->set_level(spdlog::level::trace);
-        g_default_logger->flush_on(spdlog::level::trace);
+        g_default_logger->set_level(spdlog::level::info);
+        g_default_logger->flush_on(spdlog::level::info);
     } else {
         spdlog::drop("file-logger");
         g_default_logger = spdlog::basic_logger_mt("file-logger", filename);

@@ -1,5 +1,5 @@
 #include "Acceptor.h"
-#include <spdlog/spdlog.h>
+#include "InitLog.h"
 
 namespace webserver::src
 {
@@ -9,10 +9,10 @@ Acceptor::Acceptor(EventLoop *loop, uint16_t port)
     {
         bool ret = _socket.CreateServer(port);
         assert(ret == true);
-        SPDLOG_TRACE("创建监听套接字");
+        LOG_TRACE("创建监听套接字");
         _channel.SetFd(_socket.Fd());
         _channel.SetReadCallback(std::bind(&Acceptor::HandleRead, this));
-        SPDLOG_TRACE("channel 设置读事件回调成功");
+        LOG_TRACE("channel 设置读事件回调成功");
     }
 
 void Acceptor::HandleRead() {
@@ -20,7 +20,7 @@ void Acceptor::HandleRead() {
     std::shared_ptr<net::Socket> socket = _socket.Accept(peer); // 接收连接
     if(!socket) {
         // accept socket failed
-        SPDLOG_ERROR("Accept socket failed!");
+        LOG_ERROR("Accept socket failed!");
         return;
     }
     int newfd = socket->Fd();

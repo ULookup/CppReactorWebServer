@@ -16,9 +16,9 @@ public:
     void SetThreadCount(int count) { _thread_count = count; }
     /* brief: 创建线程池 */
     void Create() {
-        SPDLOG_TRACE("进入线程池创建函数");
+        LOG_TRACE("进入线程池创建函数");
         if(_thread_count > 0) {
-            SPDLOG_TRACE("设置的线程数大于0, 创建线程池");
+            LOG_TRACE("设置的线程数大于0, 创建线程池");
             _threads.resize(_thread_count);
             _loops.resize(_thread_count);
             for(int i = 0; i < _thread_count; ++i) {
@@ -26,7 +26,7 @@ public:
                 _loops[i] = _threads[i]->GetLoop();
             }
         }
-        SPDLOG_TRACE("退出线程池创建函数");
+        LOG_TRACE("退出线程池创建函数");
     }
     /* brief: 获取下一个EventLoop */
     EventLoop *NextLoop() {

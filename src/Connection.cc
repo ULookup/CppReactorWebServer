@@ -61,7 +61,7 @@ void Connection::HandleRead() {
         // 读取失败，进入正常关闭连接流程：检查缓冲区还有没有待发送的数据
         return ShutdownInLoop();
     }
-    SPDLOG_TRACE("[EventLoop: {}, Connection: {}] socket 缓冲区数据读取到 in_buffer内", _loop->GetId(), _conn_id);
+    LOG_TRACE("[EventLoop: {}, Connection: {}] socket 缓冲区数据读取到 in_buffer内", _loop->GetId(), _conn_id);
     //step2：将读取到的数据交给上层进行业务处理
     if(_in_buffer.ReadableBytes() > 0) {
         // 将该连接的指针和缓冲区指针交付给上层，执行业务处理
@@ -76,19 +76,19 @@ void Connection::HandleWrite() {
     if(_out_buffer.ReadableBytes() > 0) {
         while(_out_buffer.ReadableBytes() > 0) {
             // 内存输出缓冲区Buffer有数据，发送
-            SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区有数据待发送: {}", _loop->GetId(), _conn_id, _out_buffer.ReadableBytes());
+            LOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区有数据待发送: {}", _loop->GetId(), _conn_id, _out_buffer.ReadableBytes());
             ssize_t ret = _socket.NonBlockSend(_out_buffer.ReadPos(), _out_buffer.ReadableBytes());
             if(ret < 0) {
                 // Socket发送数据失败（一般是对端关闭连接)
                 return Release();
             }
-            SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区发送了数据: {}", _loop->GetId(), _conn_id, ret);
+            LOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区发送了数据: {}", _loop->GetId(), _conn_id, ret);
             _out_buffer.MoveReadOffset(ret);
             total_sent_in_loop += ret;
 
             if(total_sent_in_loop >= kMaxBytesPerLoop) {
                 // 单次 Loop 的配额用尽，主动让出 Cpu
-                SPDLOG_TRACE("[Connnection: {}] 单次发送文件配额用尽, 此次发送了: {} bytes", _conn_id, total_sent_in_loop);
+                LOG_TRACE("[Connnection: {}] 单次发送文件配额用尽, 此次发送了: {} bytes", _conn_id, total_sent_in_loop);
                 return;
             }
         }
@@ -100,26 +100,26 @@ void Connection::HandleWrite() {
         // 真正的 sendfile 系统调用逻辑
         while(_filectx.remain > 0) {
             size_t send_len = std::min(_filectx.remain, kMaxSendChunk);
-            SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 需要发送文件的大小为: {}bytes", _loop->GetId(), _conn_id, send_len);
+            LOG_TRACE("[EventLoop: {}, Connection: {}] 需要发送文件的大小为: {}bytes", _loop->GetId(), _conn_id, send_len);
             ssize_t sent = sendfile(_sockfd, _filectx.fd, &_filectx.offset, send_len);
             if(sent > 0) {
-                SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 发送了 {}bytes 的文件", _loop->GetId(), _conn_id, sent);
+                LOG_TRACE("[EventLoop: {}, Connection: {}] 发送了 {}bytes 的文件", _loop->GetId(), _conn_id, sent);
                 _filectx.remain -= sent;
                 total_sent_in_loop += sent;
                 if(_filectx.remain == 0) {
-                    SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 文件发送完毕", _loop->GetId(), _conn_id);
+                    LOG_TRACE("[EventLoop: {}, Connection: {}] 文件发送完毕", _loop->GetId(), _conn_id);
                     close(_filectx.fd);
                     _filectx.Reset();
                     break;
                 }
                 // 配额检查
                 if(total_sent_in_loop >= kMaxBytesPerLoop) {
-                    SPDLOG_TRACE("[Connection: {}] 配额用尽, 此次写了 {} bytes", _conn_id, total_sent_in_loop);
+                    LOG_TRACE("[Connection: {}] 配额用尽, 此次写了 {} bytes", _conn_id, total_sent_in_loop);
                     return;
                 }
             } else {
                 if(errno != EAGAIN || errno != EINTR) {
-                    SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 文件发送失败, 关闭并释放连接");
+                    LOG_TRACE("[EventLoop: {}, Connection: {}] 文件发送失败, 关闭并释放连接");
                     close(_filectx.fd);
                     _filectx.Reset();
                     return Release();
@@ -131,7 +131,7 @@ void Connection::HandleWrite() {
 
     // step3: 检查内存输出缓冲区Buffer和文件是否发送完毕
     if(_out_buffer.ReadableBytes() == 0 && !_filectx.active) {
-        SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区和文件没有待发送的数据", _loop->GetId(), _conn_id);
+        LOG_TRACE("[EventLoop: {}, Connection: {}] 输出缓冲区和文件没有待发送的数据", _loop->GetId(), _conn_id);
         _channel.DisableWrite();
 
         if(_status == DISCONNECTING) {
@@ -191,7 +191,7 @@ void Connection::ReleaseInLoop() {
     if (_filectx.active && _filectx.fd >= 0) {
         close(_filectx.fd);
         _filectx.Reset();
-        SPDLOG_INFO("连接关闭，清理文件");
+        LOG_INFO("连接关闭，清理文件");
     }
     //step4：如果有定时销毁任务，就取消任务
     if(_loop->HasTimer(_conn_id)) CancleInactiveReleaseInLoop();
@@ -204,9 +204,9 @@ void Connection::ReleaseInLoop() {
 void Connection::SendInLoop(Buffer &buf) {
     if(_status == DISCONNECTED) return;
     //将要发送的数据放入连接的发送缓冲区，并开启可写事件监控，表示可以写入内核缓冲区了
-    SPDLOG_TRACE("将要发送的数据放入连接的输出缓冲区");
+    LOG_TRACE("将要发送的数据放入连接的输出缓冲区");
     _out_buffer.Append(buf);
-    SPDLOG_TRACE("输出缓冲区可读字节数: {}", _out_buffer.ReadableBytes());
+    LOG_TRACE("输出缓冲区可读字节数: {}", _out_buffer.ReadableBytes());
     if(_channel.WritAble() == false) _channel.EnableWrite();
 }
 /* brief: 实际发送的函数 */
@@ -215,7 +215,7 @@ void Connection::SendFileInLoop(int fd, off_t offset, size_t size) {
     if(_filectx.active) {
         //上一个文件还没发完，应用层回等待上一条发完
         close(fd);
-        SPDLOG_WARN("Connection繁忙, 不发送该文件");
+        LOG_WARN("Connection繁忙, 不发送该文件");
         return;       
     }
     // 上一个文件发完了, Connection 空闲
@@ -236,11 +236,11 @@ void Connection::ShutdownInLoop() {
     }
     //只有当所有数据（Buffer 和 File）都发完了，才直接Release
     if(_out_buffer.ReadableBytes() == 0 && !_filectx.active) {
-        SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 所以数据都发送完了，直接释放连接", _loop->GetId(), _conn_id);
+        LOG_TRACE("[EventLoop: {}, Connection: {}] 所以数据都发送完了，直接释放连接", _loop->GetId(), _conn_id);
         Release();
     } else {
         //还有数据没发完，确保 Write 事件开启，让 HandleWrite在发完后触发 Release
-        SPDLOG_TRACE("[EventLoop: {}, Connection: {}] 还有数据没发完，开启可写事件监控", _loop->GetId(), _conn_id);
+        LOG_TRACE("[EventLoop: {}, Connection: {}] 还有数据没发完，开启可写事件监控", _loop->GetId(), _conn_id);
         if(!_channel.WritAble()) _channel.EnableWrite();
     }
 }

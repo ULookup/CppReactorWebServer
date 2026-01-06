@@ -2,7 +2,7 @@
 
 #include <string>
 #include <unordered_map>
-#include <spdlog/spdlog.h>
+#include "InitLog.h"
 
 namespace webserver::http
 {

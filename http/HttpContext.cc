@@ -24,27 +24,27 @@ void HttpContext::RecvHttpRequest(src::Buffer *buf) {
 /* brief: 接收Http请求行 */
 bool HttpContext::RecvHttpLine(src::Buffer *buf) {
     if(_recv_status != RECV_HTTP_LINE) return false; //如果不处于接收请求行状态则返回
-    SPDLOG_DEBUG("开始接收 Http 请求行");
+    LOG_DEBUG("开始接收 Http 请求行");
     //step 1: 获取一行数据
     std::string line = buf->GetlineAndPop();
-    SPDLOG_TRACE("HttpLine: {}", line);
+    LOG_TRACE("HttpLine: {}", line);
     //step 2: 缓冲区数据不足一行/一行超大（即没读到\r\n）
     if(line.size() == 0) {
         // 缓冲区中的数据不足一行，则需要判断缓冲区的可读数据长度，如果很长，则说明有问题
-        SPDLOG_DEBUG("缓冲区数据没有行结尾标识符");
+        LOG_DEBUG("缓冲区数据没有行结尾标识符");
         if(buf->ReadableBytes() > MAX_LINE) {
-            SPDLOG_WARN("缓冲区数据太长，缓冲区数据错误");
+            LOG_WARN("缓冲区数据太长，缓冲区数据错误");
             _recv_status = RECV_HTTP_ERROR;
             _resp_status = 414; // url too long
             return false;
         }
         // 不足一行，但也不多，就等待新数据到来
-        SPDLOG_DEBUG("缓冲区数据不足一行，等待新数据到来");
+        LOG_DEBUG("缓冲区数据不足一行，等待新数据到来");
         return true;
     }
     // 读到了一行，但一行超大
     if(line.size() > MAX_LINE) {
-        SPDLOG_WARN("一行数据太长，错误数据");
+        LOG_WARN("一行数据太长，错误数据");
         _recv_status = RECV_HTTP_ERROR;
         _resp_status = 414; // url too long
         return false;
@@ -52,7 +52,7 @@ bool HttpContext::RecvHttpLine(src::Buffer *buf) {
     // 读取完完整的正常的一行
     bool ret = ParseHttpLine(line);
     if(ret == false) return false;
-    SPDLOG_DEBUG("结束接收请求行");
+    LOG_DEBUG("结束接收请求行");
     _recv_status = RECV_HTTP_HEAD; // 成功接收完请求行，状态切换置接收请求头
     return true;
 }
@@ -62,13 +62,13 @@ bool HttpContext::ParseHttpLine(std::string &line) {
     if(line.back() == '\n') line.pop_back();
     if(line.back() == '\r') line.pop_back();
     // 获取解析完成的请求行
-    SPDLOG_TRACE("开始分割请求行: {}", line);
+    LOG_TRACE("开始分割请求行: {}", line);
     auto matches = util::Util::SplitLine(line);
     assert(matches.size() == 4);
-    SPDLOG_TRACE("parseline matches[0]: {}", matches[0]);
-    SPDLOG_TRACE("parseline matches[1]: {}", matches[1]);
-    SPDLOG_TRACE("parseline matches[2]: {}", matches[2]);
-    SPDLOG_TRACE("parseline matches[3]: {}", matches[3]);
+    LOG_TRACE("parseline matches[0]: {}", matches[0]);
+    LOG_TRACE("parseline matches[1]: {}", matches[1]);
+    LOG_TRACE("parseline matches[2]: {}", matches[2]);
+    LOG_TRACE("parseline matches[3]: {}", matches[3]);
     // step 2: 设置HttpRequest上下文
     // 2.1设置method
     _request._method = matches[0];
@@ -87,7 +87,7 @@ bool HttpContext::ParseHttpLine(std::string &line) {
         size_t pos = line.find("=");
         if(pos == std::string::npos) {
             // 字串里没有 = ，请求行格式出错
-            SPDLOG_WARN("请求行的请求参数格式错误");
+            LOG_WARN("请求行的请求参数格式错误");
             _recv_status = RECV_HTTP_ERROR;
             _resp_status = 400; // BAD REQUEST
             return false;
@@ -104,45 +104,45 @@ bool HttpContext::ParseHttpLine(std::string &line) {
 bool HttpContext::RecvHttpHead(src::Buffer *buf) {
     if(_recv_status != RECV_HTTP_HEAD) return false; // 如果不处于接收请求头状态则返回
     // 一行一行的取出数据，直到遇到空行，头部格式 key1: val1\r\nkey2: val2\r\n...
-    SPDLOG_DEBUG("开始接收 Http 请求头");
+    LOG_DEBUG("开始接收 Http 请求头");
     while(1) {
         //step 1:获取一行数据
         std::string line = buf->GetlineAndPop();
-        SPDLOG_TRACE("一行数据 line = {}", line);
+        LOG_TRACE("一行数据 line = {}", line);
         //step 2:缓冲区不足一行/一行数据超大
         if(line.size() == 0) {
             //缓冲区中的数据不足一行，则需要判断缓冲区的可读数据长度，如果很长，则有问题
-            SPDLOG_DEBUG("缓冲区数据没有行结尾标识符");
+            LOG_DEBUG("缓冲区数据没有行结尾标识符");
             if(buf->ReadableBytes() > MAX_LINE) {
-                SPDLOG_WARN("缓冲区数据太长，缓冲区数据错误");
+                LOG_WARN("缓冲区数据太长，缓冲区数据错误");
                 _recv_status = RECV_HTTP_ERROR;
                 _resp_status = 414; //URL TOO LONG
                 return false;
             }
             //不足一行，但不过多，就等新数据到来
-            SPDLOG_DEBUG("缓冲区数据不足一行，等待新数据到来");
+            LOG_DEBUG("缓冲区数据不足一行，等待新数据到来");
             return true;
         }
         if(line.size() > MAX_LINE) {
             //一行数据超大
-            SPDLOG_WARN("一行数据太长，错误数据");
+            LOG_WARN("一行数据太长，错误数据");
             _recv_status = RECV_HTTP_ERROR;
             _resp_status = 414; //URL TOO LONG
             return false;
         }
         if(line == "\n" || line == "\r\n") {
             //读到空行，请求头接收完毕
-            SPDLOG_DEBUG("读到空行，请求头接收完毕");
+            LOG_DEBUG("读到空行，请求头接收完毕");
             break;
         }
         // 正常接收到一行数据，对其进行解析
         bool ret = ParseHttpHead(line);
         if(ret == false) {
-            SPDLOG_WARN("该行请求头解析失败，结束接收请求头");
+            LOG_WARN("该行请求头解析失败，结束接收请求头");
             return false;
         }
     }
-    SPDLOG_DEBUG("结束接收请求头");
+    LOG_DEBUG("结束接收请求头");
     _recv_status = RECV_HTTP_BODY;
     return true;
 }
@@ -155,7 +155,7 @@ bool HttpContext::ParseHttpHead(std::string &line) {
     size_t pos = line.find(": ");
     if(pos == std::string::npos) {
         // 没有找到分割符
-        SPDLOG_WARN("没有找到 ': ' 分割，无效请求头");
+        LOG_WARN("没有找到 ': ' 分割，无效请求头");
         _recv_status = RECV_HTTP_ERROR;
         _resp_status = 400; // BAD REQUEST
         return false;
@@ -169,34 +169,34 @@ bool HttpContext::ParseHttpHead(std::string &line) {
 /* brief: 接收Http请求体 */
 bool HttpContext::RecvHttpBody(src::Buffer *buf) {
     if(_recv_status != RECV_HTTP_BODY) return false;
-    SPDLOG_DEBUG("开始接收 Http 请求体");
+    LOG_DEBUG("开始接收 Http 请求体");
     //step 1: 获取正文长度
     size_t content_length = _request.GetContentLength();
-    SPDLOG_TRACE("content-length: {}", content_length);
+    LOG_TRACE("content-length: {}", content_length);
     if(content_length == 0) {\
         // 根据请求头的说明，没有请求体
-        SPDLOG_DEBUG("正文长度为 0 , 接收 Http 请求完毕");
+        LOG_DEBUG("正文长度为 0 , 接收 Http 请求完毕");
         _recv_status = RECV_HTTP_OVER;
         return true;
     }
     //step 2:走到这，说明有正文。先明白当前已经接收了多少正文，再计算出要接收的剩余正文
     size_t real_len = content_length - _request._body.size();
-    SPDLOG_TRACE("real_len = {}, ReadAbleBytes = {}", real_len, buf->ReadableBytes());
+    LOG_TRACE("real_len = {}, ReadAbleBytes = {}", real_len, buf->ReadableBytes());
     //step 3:接收正文，放到 body 中，要考虑缓冲区的数据是否全是正文
     // 3.1 缓冲区中数据包含所有正文，取出所需数据
     if(buf->ReadableBytes() >= real_len) {
         _request._body.append(buf->ReadPos(), real_len);
-        SPDLOG_TRACE("real_len = {}", real_len);
+        LOG_TRACE("real_len = {}", real_len);
         buf->MoveReadOffset(real_len);
         _recv_status = RECV_HTTP_OVER;
-        SPDLOG_DEBUG("缓冲区数据满足正文需要，取出需要的数据");
+        LOG_DEBUG("缓冲区数据满足正文需要，取出需要的数据");
         return true;
     }
     // 3.2 走到这说明缓冲区中数据还不包含所有正文，取出后等待下一次正文到来
     _request._body.append(buf->ReadPos(), buf->ReadableBytes());
     buf->MoveReadOffset(buf->ReadableBytes());
-    SPDLOG_TRACE("ReadAbleBytes = {}", buf->ReadableBytes());
-    SPDLOG_DEBUG("缓冲区数据不满足正文需要，等待新数据到来");
+    LOG_TRACE("ReadAbleBytes = {}", buf->ReadableBytes());
+    LOG_DEBUG("缓冲区数据不满足正文需要，等待新数据到来");
     return true;
 }
 
